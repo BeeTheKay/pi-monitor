@@ -1,0 +1,388 @@
+/**
+ * styles.css — Pi System Monitor
+ *
+ * Organisation
+ * ────────────
+ *  DESIGN TOKENS      :root CSS variables for all colours, glows, and layout values.
+ *                     JS never writes colour values; it only toggles classes or sets
+ *                     --val-w (value column width) and --bar-fill (bar width).
+ *                     To retheme the widget, edit :root only.
+ *
+ *  RESET              Box model normalisation; body background and font.
+ *  WIDGET SHELL       Outer grid + decorative corner accents.
+ *  HEADER             Status dot, device name, gear button.
+ *  MAIN               Temperature display and metrics table.
+ *  METRICS TABLE      .metric-row grid; bar track/fill; value column.
+ *  FOOTER             Normal state, inline URL editor, error state.
+ *  SETTINGS OVERLAY   Full-screen settings panel with toggle switch and disk fields.
+ *
+ * Key CSS patterns used
+ * ─────────────────────
+ *  clamp() / vw / vh     Fluid typography that scales without media queries.
+ *  CSS custom properties  --bar-fill set per-element by JS; width: var(--bar-fill)
+ *                         in CSS owns the animated transition.
+ *  .state-class toggling  JS adds/removes classes (e.g. .open, .active, .pct-mode,
+ *                         .warm, .hot, .offline); CSS owns all visual outcomes.
+ *
+ * Colour thresholds (mirrored in CONFIG in app.js — keep in sync if changed)
+ * ──────────────────────────────────────────────────────────────────────────
+ *  Temperature  ≥55 °C → --warn (amber)   ≥75 °C → --hot (red)
+ *  Bar usage    ≥65 %  → .warn (amber)    ≥85 %  → .hot  (red)
+ */
+
+/**
+ * SECTION INDEX
+ * ─────────────────────────────────────────────────────────────────────────
+ * Search for the section banner (e.g. "── RESET") to jump directly.
+ *
+ *  §1  DESIGN TOKENS ......... CSS custom properties: colours, glows, layout.
+ *  §2  RESET ................. Box model, body background and font.
+ *  §3  WIDGET SHELL .......... Outer grid and decorative corner accents.
+ *  §4  HEADER ................ Status dot, device name, gear button.
+ *  §5  MAIN / TEMPERATURE .... Large temperature readout.
+ *  §6  METRICS TABLE ......... Metric rows, progress bars, value column.
+ *  §7  FOOTER ................ Normal state, inline URL editor, error state.
+ *  §8  SETTINGS OVERLAY ...... Full-screen panel, toggle switch, disk fields.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600&family=Orbitron:wght@400;700;900&display=swap');
+
+/* ── §1 DESIGN TOKENS ─────────────────────────────────────────────────────────
+   All colors, shadows, and semantic aliases live here.
+   JS never writes colour values — it only toggles classes or sets --val-w.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  --bg:         #080d18;
+  --border:     rgba(120, 180, 220, 0.12);
+  --accent:     #7dd8f0;
+  --accent-dim: rgba(125, 216, 240, 0.5);
+  --warn:       #f0c060;
+  --hot:        #f07070;
+  --text:       #d0e8f5;
+  --dim:        rgba(160, 200, 220, 0.35);
+  --label:      rgba(160, 210, 230, 0.65);
+  --glow:       0 0 24px rgba(125,216,240,0.25), 0 0 48px rgba(125,216,240,0.08);
+  --glow-warm:  0 0 24px rgba(240,192,96,0.3);
+  --glow-hot:   0 0 24px rgba(240,112,112,0.35);
+
+  /**
+   * --bar-fill: progress bar width, driven per-element by JS.
+   *
+   * JS calls:  barEl.style.setProperty('--bar-fill', pct + '%')
+   * CSS uses:  width: var(--bar-fill, 0%)   (in .metric-bar-fill)
+   *
+   * This pattern keeps the CSS transition declaration in CSS where it belongs,
+   * while JS only supplies the data value.  The :root default of 0% is a safe
+   * fallback for any bar that has not yet received a value from the API.
+   */
+  --bar-fill: 0%;
+}
+
+/* ── §2 RESET ──────────────────────────────────────────────────────────────── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  overflow: hidden;
+  font-family: 'Rajdhani', sans-serif;
+}
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(30,80,160,0.18) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(20,50,100,0.12) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* ── §3 WIDGET SHELL ───────────────────────────────────────────────────────── */
+.widget {
+  width: 100%; height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Corner accent marks */
+.corner { position: absolute; width: 10px; height: 10px; border-color: rgba(125,216,240,0.18); border-style: solid; }
+.corner.tl { top:0;    left:0;  border-width: 1px 0 0 1px; }
+.corner.tr { top:0;    right:0; border-width: 1px 1px 0 0; }
+.corner.bl { bottom:0; left:0;  border-width: 0 0 1px 1px; }
+.corner.br { bottom:0; right:0; border-width: 0 1px 1px 0; }
+
+/* ── §4 HEADER ─────────────────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10,20,45,0.6);
+}
+.header-left  { display: flex; align-items: center; gap: 6px; user-select: none; }
+.header-right { display: flex; align-items: center; gap: 10px; }
+
+.pi-icon {
+  width: 3.2vw; height: 3.2vw; min-width: 12px; min-height: 12px;
+  opacity: 0.6; flex-shrink: 0;
+}
+.device-name {
+  font-size: 2.8vw; font-weight: 600;
+  color: var(--dim); letter-spacing: 0.25em; text-transform: uppercase;
+}
+
+/* Status indicator dot */
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: var(--accent); box-shadow: 0 0 6px var(--accent-dim);
+  animation: pulse 2.5s ease-in-out infinite;
+}
+.status-dot.offline  { background: var(--dim);  box-shadow: none; animation: none; }
+.status-dot.fetching { background: var(--warn); box-shadow: 0 0 6px rgba(240,192,96,0.5); animation: none; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+.gear-btn {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  color: var(--dim); opacity: 0.6;
+  transition: opacity 0.2s, color 0.2s;
+  display: flex; align-items: center;
+}
+.gear-btn:hover { opacity: 1; color: var(--accent); }
+.gear-btn svg { width: 3vw; height: 3vw; min-width: 12px; min-height: 12px; }
+
+/* ── §5 MAIN / TEMPERATURE ─────────────────────────────────────────────────── */
+.main {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 1.5vh 8px; gap: 1.2vh;
+  position: relative; overflow: hidden;
+}
+
+.temp-wrap { display: flex; align-items: baseline; justify-content: center; line-height: 1; }
+.temp-value {
+  font-family: 'Orbitron', monospace;
+  font-size: min(16vw, 20vh); font-weight: 900; line-height: 1;
+  color: var(--text); text-shadow: var(--glow);
+  transition: color 0.5s, text-shadow 0.5s;
+  letter-spacing: -0.03em; white-space: nowrap;
+}
+.temp-value.warm { color: var(--warn); text-shadow: var(--glow-warm); }
+.temp-value.hot  { color: var(--hot);  text-shadow: var(--glow-hot);  }
+.temp-value.dead { color: rgba(160,200,220,0.2); text-shadow: none;   }
+.temp-unit {
+  font-family: 'Orbitron', monospace; font-size: 4.5vw; font-weight: 300;
+  color: var(--accent); margin-left: 3px; padding-bottom: 0.2em; opacity: 0.7;
+}
+
+/* ── §6 METRICS TABLE ──────────────────────────────────────────────────────── */
+.metrics {
+  width: 92%; display: flex; flex-direction: column; gap: 1.1vh;
+  border-top: 1px solid var(--border); padding-top: 1.2vh;
+  /* --val-w is updated by updateValColumn() to fit the widest value exactly */
+  --val-w: 13%;
+}
+.metric-row {
+  display: grid;
+  grid-template-columns: minmax(28px, 8%) 1fr var(--val-w);
+  align-items: center; gap: 1.5%;
+}
+.metric-label {
+  font-size: clamp(9px, 2.4vw, 14px); font-weight: 600;
+  color: var(--dim); letter-spacing: 0.12em; text-transform: uppercase;
+  text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.metric-bar-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+
+/* Bar fill: width is driven by the --bar-fill CSS variable set per-element by JS.
+   This decouples the visual state from the JS logic — JS sets the variable,
+   CSS owns the transition and appearance. */
+.metric-bar-fill {
+  height: 100%; border-radius: 2px;
+  width: var(--bar-fill, 0%);
+  background: linear-gradient(90deg, rgba(125,216,240,0.4), var(--accent));
+  transition: width 0.8s cubic-bezier(0.4,0,0.2,1), background 0.5s;
+  box-shadow: 0 0 5px rgba(125,216,240,0.25);
+}
+.metric-bar-fill.warn {
+  background: linear-gradient(90deg, var(--accent-dim), var(--warn));
+  box-shadow: 0 0 5px rgba(240,192,96,0.3);
+}
+.metric-bar-fill.hot {
+  background: linear-gradient(90deg, var(--warn), var(--hot));
+  box-shadow: 0 0 5px rgba(240,112,112,0.3);
+}
+
+.metric-val {
+  font-family: 'Orbitron', monospace; font-size: clamp(8px, 2.4vw, 13px); font-weight: 700;
+  color: var(--text); opacity: 0.85; white-space: nowrap; text-align: left;
+}
+/* In percentage mode all values are right-aligned so % signs stack */
+.metrics.pct-mode .metric-val { text-align: right; }
+
+/* ── §7 FOOTER ─────────────────────────────────────────────────────────────── */
+.footer {
+  display: flex; align-items: center;
+  padding: 5px 14px; border-top: 1px solid var(--border);
+  background: rgba(10,20,45,0.6); flex-shrink: 0;
+}
+#footerNormal { justify-content: space-between; }
+.footer-text  { font-size: 2.5vw; color: var(--label); letter-spacing: 0.08em; }
+
+/* Clickable host label */
+#footerIp {
+  cursor: pointer; border-bottom: 1px dashed rgba(160,210,230,0.3);
+  transition: color 0.2s, border-color 0.2s;
+}
+#footerIp:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+/* Inline URL edit row (hidden until user clicks the host label) */
+.footer-url-edit { display: none; flex: 1; align-items: center; gap: 4px; }
+.footer-url-edit.active { display: flex; }
+.footer-url-input {
+  flex: 1; min-width: 0;
+  background: rgba(5,12,28,0.9); border: 1px solid var(--accent-dim);
+  color: var(--text); font-family: 'Rajdhani', sans-serif; font-weight: 600;
+  font-size: 2.5vw; padding: 1px 6px; border-radius: 2px; outline: none;
+  transition: border-color 0.2s;
+}
+.footer-url-input:focus { border-color: var(--accent); }
+.footer-url-btn {
+  background: rgba(125,216,240,0.08); border: 1px solid rgba(125,216,240,0.25);
+  color: var(--accent); font-size: 3vw; line-height: 1;
+  padding: 1px 5px; border-radius: 2px; cursor: pointer; flex-shrink: 0;
+  transition: background 0.2s;
+}
+.footer-url-btn:hover { background: rgba(125,216,240,0.18); }
+.footer-url-cancel {
+  background: none; border: none; color: rgba(160,210,230,0.4);
+  font-size: 3vw; line-height: 1; padding: 1px 4px; cursor: pointer; flex-shrink: 0;
+}
+.footer-url-cancel:hover { color: var(--hot); }
+
+/* Error footer — shown when fetch fails */
+.footer-err {
+  border-top-color: rgba(240,112,112,0.25);
+  background: rgba(20,8,8,0.7);
+  padding: 4px 10px;
+}
+.err-url-wrap  { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.err-label {
+  font-size: 2.3vw; color: var(--hot); letter-spacing: 0.08em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.err-input-row { display: flex; gap: 4px; align-items: center; width: 100%; }
+.err-input {
+  flex: 1; min-width: 0;
+  background: rgba(5,12,28,0.9); border: 1px solid rgba(240,112,112,0.3);
+  color: var(--text); font-family: 'Rajdhani', sans-serif; font-weight: 600;
+  font-size: 2.5vw; padding: 2px 6px; border-radius: 2px; outline: none;
+  transition: border-color 0.2s;
+}
+.err-input:focus { border-color: rgba(240,112,112,0.6); }
+.err-btn {
+  background: rgba(240,112,112,0.1); border: 1px solid rgba(240,112,112,0.3);
+  color: var(--hot); font-size: 3vw; line-height: 1;
+  padding: 1px 6px; border-radius: 2px; cursor: pointer; flex-shrink: 0;
+  transition: background 0.2s;
+}
+.err-btn:hover { background: rgba(240,112,112,0.22); }
+
+/* ── §8 SETTINGS OVERLAY ───────────────────────────────────────────────────── */
+.settings-overlay {
+  position: absolute; inset: 0; z-index: 100;
+  background: rgba(6,11,24,0.97);
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.settings-overlay.open { opacity: 1; pointer-events: all; }
+
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 2vw 3.5vw; border-bottom: 1px solid var(--border);
+  background: rgba(10,20,45,0.8); flex-shrink: 0;
+}
+.settings-title {
+  font-size: 3.5vw; font-weight: 600; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--accent);
+}
+.close-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--dim); font-size: 4.5vw; line-height: 1;
+  padding: 0 0.5vw; transition: color 0.2s;
+}
+.close-btn:hover { color: var(--hot); }
+
+.settings-body {
+  flex: 1; overflow-y: auto; padding: 2.5vw 3.5vw;
+  display: flex; flex-direction: column; gap: 3vw;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(125,216,240,0.2) transparent;
+}
+.settings-section-title {
+  font-size: 2.5vw; font-weight: 600; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--accent);
+  border-bottom: 1px solid var(--border); padding-bottom: 1.5vw; margin-bottom: 1.5vw;
+}
+.s-field-label {
+  font-size: 2.2vw; color: var(--label);
+  letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 1vw;
+}
+.s-row { display: flex; gap: 1.5vw; align-items: flex-end; }
+.s-row > :first-child { flex: 1; }
+
+.s-input {
+  background: rgba(5,12,28,0.9);
+  border: 1px solid rgba(120,180,220,0.25); color: var(--text);
+  font-family: 'Rajdhani', sans-serif; font-weight: 600;
+  font-size: 3vw; padding: 1.2vw 1.5vw; border-radius: 2px;
+  outline: none; letter-spacing: 0.04em; width: 100%;
+  transition: border-color 0.2s;
+}
+.s-input:focus { border-color: var(--accent-dim); }
+
+.s-btn {
+  background: rgba(125,216,240,0.07);
+  border: 1px solid rgba(125,216,240,0.2); color: var(--accent);
+  font-family: 'Rajdhani', sans-serif; font-weight: 700;
+  font-size: 2.5vw; padding: 1.2vw 2.5vw; border-radius: 2px;
+  cursor: pointer; letter-spacing: 0.14em; white-space: nowrap; flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.s-btn:hover  { background: rgba(125,216,240,0.14); border-color: rgba(125,216,240,0.4); }
+.s-btn.danger { color: var(--hot); border-color: rgba(240,112,112,0.25); background: rgba(240,112,112,0.05); }
+.s-btn.danger:hover { background: rgba(240,112,112,0.12); }
+
+.settings-footer {
+  padding: 2vw 3.5vw; border-top: 1px solid var(--border);
+  background: rgba(10,20,45,0.8);
+  display: flex; justify-content: flex-end; gap: 2vw; flex-shrink: 0;
+}
+
+/* Toggle switch */
+.s-toggle-row {
+  display: flex; align-items: center; justify-content: space-between; padding: 1.5vw 0;
+}
+.s-toggle-label { font-size: 3vw; font-weight: 600; color: var(--text); letter-spacing: 0.05em; }
+.s-toggle-sub   { font-size: 2.2vw; color: var(--label); margin-top: 0.3vw; }
+.toggle-switch  { position: relative; width: 9vw; height: 5vw; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: absolute; inset: 0; border-radius: 5vw;
+  background: rgba(120,180,220,0.12); border: 1px solid var(--border);
+  cursor: pointer; transition: background 0.25s;
+}
+.toggle-track::after {
+  content: ''; position: absolute; top: 0.6vw; left: 0.6vw;
+  width: 3.5vw; height: 3.5vw; border-radius: 50%;
+  background: var(--dim); transition: transform 0.25s, background 0.25s;
+}
+.toggle-switch input:checked + .toggle-track { background: rgba(125,216,240,0.2); border-color: var(--accent-dim); }
+.toggle-switch input:checked + .toggle-track::after { transform: translateX(4vw); background: var(--accent); }
+
+/* Disk rename fields */
+.disk-field-wrap   { margin-bottom: 2.5vw; }
+.disk-field-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 1.2vw; }
+.disk-field-mount  { font-size: 2.2vw; color: var(--label); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; }
+.disk-field-size   { font-size: 2.2vw; color: var(--accent); opacity: 0.85; }
+.disk-field-row    { display: flex; gap: 2vw; align-items: center; }
